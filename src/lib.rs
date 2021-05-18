@@ -12,14 +12,14 @@
 //! case an AtomicI32 could be substituted):
 //!
 //! ```
-//! use option_lock::OptionLock;
+//! use option_lock::{OptionLock, OptionGuard};
 //!
 //! static SHARED: OptionLock<i32> = OptionLock::new(0);
 //!
 //! fn try_increase() -> bool {
-//!   if let Some(mut guard) = SHARED.try_lock() {
+//!   if let Ok(mut guard) = SHARED.try_lock() {
 //!     let next = guard.take().unwrap() + 1;
-//!     guard.replace(next);
+//!     OptionGuard::replace(&mut guard, next);
 //!     true
 //!   } else {
 //!     false
@@ -39,15 +39,20 @@
 #[cfg(any(test, feature = "alloc"))]
 extern crate alloc;
 
+mod error;
+pub use self::error::OptionLockError;
+
 mod lock;
 
-pub use self::lock::{OptionGuard, OptionLock, SomeGuard};
+pub use self::lock::{OptionGuard, OptionLock};
 
 #[cfg(feature = "alloc")]
 mod arc;
 #[cfg(feature = "alloc")]
-pub use self::arc::ArcGuard;
+pub use self::arc::{MutexGuardArc, OptionGuardArc};
 
 mod once;
-
 pub use self::once::{Lazy, OnceCell};
+
+mod mutex;
+pub use self::mutex::{Mutex, MutexGuard};

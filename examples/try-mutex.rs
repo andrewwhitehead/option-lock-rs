@@ -1,60 +1,21 @@
-use std::{
-    hint::spin_loop,
-    ops::{Deref, DerefMut},
-    sync::Arc,
-    thread,
-};
+use std::{hint::spin_loop, sync::Arc, thread};
 
-use option_lock::{OptionLock, SomeGuard};
+use option_lock::Mutex;
 
-/// A simple wrapper around an OptionLock which ensures that there
-/// is always a stored value
-struct TryMutex<T> {
-    lock: OptionLock<T>,
-}
-
-impl<T> TryMutex<T> {
-    pub fn new(value: T) -> Self {
-        Self { lock: value.into() }
-    }
-
-    pub fn try_lock(&self) -> Option<TryMutexGuard<'_, T>> {
-        self.lock.try_get().map(|guard| TryMutexGuard { guard })
-    }
-}
-
-struct TryMutexGuard<'a, T> {
-    guard: SomeGuard<'a, T>,
-}
-
-impl<T> Deref for TryMutexGuard<'_, T> {
-    type Target = T;
-    fn deref(&self) -> &Self::Target {
-        &*self.guard
-    }
-}
-
-impl<T> DerefMut for TryMutexGuard<'_, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut *self.guard
-    }
-}
+// FIXME - this example would work equally well with a simple atomic
 
 fn main() {
-    let shared = Arc::new(TryMutex::new(0i32));
+    let shared = Arc::new(Mutex::new(0i32));
     let threads = 100;
     for _ in 0..threads {
         let shared = shared.clone();
-        thread::spawn(move || loop {
-            if let Some(mut guard) = shared.try_lock() {
-                *guard += 1;
-                break;
-            }
-            spin_loop()
+        thread::spawn(move || {
+            let mut guard = shared.spin_lock().unwrap();
+            *guard += 1;
         });
     }
     loop {
-        if shared.try_lock().map(|guard| *guard) == Some(threads) {
+        if shared.try_copy() == Ok(threads) {
             break;
         }
         spin_loop()

@@ -32,8 +32,7 @@ impl<T> Results<T> {
     }
 
     pub fn return_result(&self, index: usize, value: T) {
-        if let Some(mut guard) = self.data.get(index).and_then(OptionLock::try_lock_none) {
-            guard.replace(value);
+        if let Ok(()) = self.data[index].try_fill(value) {
             self.completed.fetch_add(1, Ordering::Release);
         } else {
             panic!("Update conflict");

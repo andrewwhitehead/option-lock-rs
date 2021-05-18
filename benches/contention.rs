@@ -7,6 +7,7 @@ use std::{
     thread,
 };
 
+#[cfg(feature = "bench")]
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 
 use option_lock::OptionLock;
@@ -21,7 +22,7 @@ fn lock_contention_yield(threads: usize) {
         let lock = lock.clone();
         thread::spawn(move || {
             let val = loop {
-                if let Some(val) = lock.try_take() {
+                if let Ok(val) = lock.try_take() {
                     break val;
                 }
                 loop {
@@ -38,7 +39,7 @@ fn lock_contention_yield(threads: usize) {
     for val in 0..threads - 1 {
         expected += val;
         loop {
-            if let Some(mut guard) = lock.try_lock_none() {
+            if let Ok(mut guard) = lock.try_lock_none() {
                 guard.replace(val);
                 break;
             }
@@ -101,5 +102,7 @@ fn bench_contention(c: &mut Criterion) {
     );
 }
 
+#[cfg(feature = "bench")]
 criterion_group!(benches, bench_contention);
+#[cfg(feature = "bench")]
 criterion_main!(benches);

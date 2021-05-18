@@ -5,9 +5,10 @@ use core::{
     ops::Deref,
 };
 
-use super::lock::OptionLock;
+use super::{error::OptionLockError, lock::OptionLock};
 
 /// An `Option` value which can be safely written once.
+#[repr(transparent)]
 pub struct OnceCell<T>(OptionLock<T>);
 
 impl<T> OnceCell<T> {
@@ -23,7 +24,7 @@ impl<T> OnceCell<T> {
 
     /// Get a shared reference to the contained value, if any.
     pub fn get(&self) -> Option<&T> {
-        if self.0.is_some_unlocked() {
+        if self.0.is_some() {
             // safe because the value is never reassigned
             Some(unsafe { &*self.0.as_ptr() })
         } else {
@@ -39,48 +40,53 @@ impl<T> OnceCell<T> {
     /// Get a reference to the contained value, initializing it if necessary.
     /// The initializer will only be run by one thread if multiple are in competition.
     pub fn get_or_init(&self, init: impl FnOnce() -> T) -> &T {
-        loop {
-            if self.0.is_some_unlocked() {
-                return unsafe { &*self.0.as_ptr() };
+        if let Some(value) = self.get() {
+            return value;
+        }
+        match self.0.try_lock_none() {
+            Ok(mut guard) => {
+                let prev = guard.replace(init());
+                assert!(prev.is_none());
             }
-            if let Some(mut guard) = self.0.try_lock_none() {
-                guard.replace(init());
-                return unsafe { &*self.0.as_ptr() };
-            } else {
-                while self.0.is_locked() {
+            Err(OptionLockError::FillState) => {
+                // filled
+            }
+            Err(OptionLockError::Unavailable) => loop {
+                while !self.0.is_some_unlocked() {
                     spin_loop();
                 }
-            }
+            },
         }
+        unsafe { &*self.0.as_ptr() }
     }
 
     /// Get a reference to the contained value, initializing it if necessary.
     /// The initializer will only be run by one thread if multiple are in competition.
     pub fn get_or_try_init<E>(&self, init: impl FnOnce() -> Result<T, E>) -> Result<&T, E> {
-        loop {
-            if self.0.is_some_unlocked() {
-                return Ok(unsafe { &*self.0.as_ptr() });
+        if let Some(value) = self.get() {
+            return Ok(value);
+        }
+        match self.0.try_lock_none() {
+            Ok(mut guard) => {
+                let prev = guard.replace(init()?);
+                assert!(prev.is_none());
             }
-            if let Some(mut guard) = self.0.try_lock_none() {
-                guard.replace(init()?);
-                return Ok(unsafe { &*self.0.as_ptr() });
-            } else {
-                while self.0.is_locked() {
+            Err(OptionLockError::FillState) => {
+                // filled
+            }
+            Err(OptionLockError::Unavailable) => loop {
+                while !self.0.is_some_unlocked() {
                     spin_loop();
                 }
-            }
+            },
         }
+        Ok(unsafe { &*self.0.as_ptr() })
     }
 
     /// Assign the value of the OnceCell, returning `Some(value)` if
     /// the cell is already locked or populated.
     pub fn set(&self, value: T) -> Result<(), T> {
-        if let Some(mut guard) = self.0.try_lock_none() {
-            guard.replace(value);
-            Ok(())
-        } else {
-            Err(value)
-        }
+        self.0.try_fill(value)
     }
 
     /// Extract the inner value.

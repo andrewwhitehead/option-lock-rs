@@ -7,8 +7,8 @@ fn option_lock_guard() {
     assert!(!a.is_locked());
     let mut guard = a.try_lock().unwrap();
     assert!(a.is_locked());
-    assert!(a.try_lock().is_none());
-    assert_eq!(a.try_take(), None);
+    assert_eq!(a.try_lock().unwrap_err(), OptionLockError::Unavailable);
+    assert_eq!(a.try_take(), Err(OptionLockError::Unavailable));
 
     assert_eq!(guard.as_ref(), Some(&1));
     guard.replace(2);
@@ -20,11 +20,11 @@ fn option_lock_guard() {
 #[test]
 fn option_lock_take() {
     let a = OptionLock::<u32>::empty();
-    assert_eq!(a.try_take(), None);
+    assert_eq!(a.try_take(), Err(OptionLockError::FillState));
     drop(a);
 
     let b = OptionLock::from(101);
-    assert_eq!(b.try_take(), Some(101));
+    assert_eq!(b.try_take(), Ok(101));
     drop(b);
 }
 
@@ -85,30 +85,30 @@ fn option_lock_try_get() {
     assert!(!a.is_locked());
     let mut guard = a.try_get().unwrap();
     assert!(a.is_locked());
-    assert!(a.try_lock().is_none());
-    assert_eq!(a.try_take(), None);
+    assert_eq!(a.try_lock().unwrap_err(), OptionLockError::Unavailable);
+    assert_eq!(a.try_take(), Err(OptionLockError::Unavailable));
 
     assert_eq!(*guard, 1);
-    guard.replace(2);
+    *guard += 1;
     drop(guard);
-    assert_eq!(a.try_lock().unwrap().as_ref(), Some(&2));
+    assert_eq!(*a.try_get().unwrap(), 2);
     assert!(!a.is_locked());
 }
 
 #[test]
 fn option_lock_try_clone() {
     let a = OptionLock::from(1);
-    assert_eq!(a.try_clone(), Some(1));
-    assert_eq!(a.try_take(), Some(1));
-    assert_eq!(a.try_clone(), None);
+    assert_eq!(a.try_clone(), Ok(1));
+    assert_eq!(a.try_take(), Ok(1));
+    assert_eq!(a.try_clone(), Err(OptionLockError::FillState));
 }
 
 #[test]
 fn option_lock_try_copy() {
     let a = OptionLock::from(1);
-    assert_eq!(a.try_copy(), Some(1));
-    assert_eq!(a.try_take(), Some(1));
-    assert_eq!(a.try_copy(), None);
+    assert_eq!(a.try_copy(), Ok(1));
+    assert_eq!(a.try_take(), Ok(1));
+    assert_eq!(a.try_copy(), Err(OptionLockError::FillState));
 }
 
 #[test]
@@ -141,10 +141,26 @@ fn arc_lock_guard() {
     assert!(!a.is_locked());
     let mut guard = a.try_lock_arc().unwrap();
     assert!(a.is_locked());
-    assert!(a.try_lock().is_none());
-    assert_eq!(a.try_take(), None);
+    assert_eq!(a.try_lock().unwrap_err(), OptionLockError::Unavailable);
+    assert_eq!(a.try_take(), Err(OptionLockError::Unavailable));
 
     assert_eq!(guard.as_ref(), Some(&1));
+    guard.replace(2);
+    drop(guard);
+    assert_eq!(a.try_lock().unwrap().as_ref(), Some(&2));
+    assert!(!a.is_locked());
+}
+
+#[test]
+fn arc_lock_try_get() {
+    let a = Arc::new(OptionLock::from(1));
+    assert!(!a.is_locked());
+    let mut guard = a.try_get_arc().unwrap();
+    assert!(a.is_locked());
+    assert_eq!(a.try_lock().unwrap_err(), OptionLockError::Unavailable);
+    assert_eq!(a.try_take(), Err(OptionLockError::Unavailable));
+
+    assert_eq!(*guard, 1);
     guard.replace(2);
     drop(guard);
     assert_eq!(a.try_lock().unwrap().as_ref(), Some(&2));
@@ -155,8 +171,11 @@ fn arc_lock_guard() {
 fn arc_lock_debug() {
     let lock = Arc::new(OptionLock::from(1));
     let guard = lock.try_lock_arc().unwrap();
-    assert_eq!(format!("{:?}", &guard), "ArcGuard(Some(1))");
+    assert_eq!(format!("{:?}", &guard), "OptionGuardArc(Some(1))");
     assert_eq!(format!("{:?}", &lock), "OptionLock(Locked)");
+    drop(guard);
+    let guard = lock.try_get_arc().unwrap();
+    assert_eq!(format!("{:?}", &guard), "MutexGuardArc(1)");
 }
 
 #[test]
